@@ -23,6 +23,8 @@ draw() {
 
 build() {
   mkdir -p "$OUT"
+  # zmk fork that config/default.nix imports as "../src"
+  [ -d src/app ] || git clone -q --depth 1 https://github.com/moergo-sc/zmk src
   if ! NIX_PATH=nixpkgs=https://github.com/NixOS/nixpkgs/archive/$NIXPKGS.tar.gz \
       nix-build config -o "$OUT/combined" -j"$(nproc)" \
         --option extra-substituters "$CACHE" \
@@ -30,6 +32,7 @@ build() {
     echo "build failed — a bad binding in $KEYMAP is the usual cause" >&2
     return 1
   fi
+  rm -f "$OUT/glove80.uf2"
   cp "$OUT/combined/glove80.uf2" "$OUT/glove80.uf2"
   echo "built -> $OUT/glove80.uf2"
 }
