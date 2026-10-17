@@ -7,10 +7,21 @@ KEYMAP=config/glove80.keymap
 CONF=config/glove80.conf
 OUT=${OUT:-out}                      # rendered layers + uf2 land here
 NIXPKGS=${NIXPKGS:-nixos-23.11}      # pinned: zmk fork is built against 23.11
+ZMK_URL=https://github.com/moergo-sc/zmk
+ZMK_REV=$(grep -v '^#' zmk.rev | tr -d '[:space:]')
 CACHE=https://moergo-glove80-zmk-dev.cachix.org
 CACHE_KEY=moergo-glove80-zmk-dev.cachix.org-1:D8fhPJ1c3gkuckuyBLRtGYarCVptIDn4g5k8u91NbyM=
 
 kd() { uvx --from keymap-drawer keymap "$@"; }
+
+# zmk fork that config/default.nix imports as "../src", held at zmk.rev
+ensure_src() {
+  [ -d src/.git ] || { mkdir -p src; git -C src init -q; }
+  git -C src remote get-url origin >/dev/null 2>&1 || git -C src remote add origin "$ZMK_URL"
+  [ "$(git -C src rev-parse HEAD 2>/dev/null)" = "$ZMK_REV" ] && return 0
+  echo "src/ -> $(echo "$ZMK_REV" | cut -c1-8) (pinned)"
+  git -C src fetch -q --depth 1 origin "$ZMK_REV" && git -C src checkout -q FETCH_HEAD
+}
 
 draw() {
   mkdir -p "$OUT"
@@ -23,8 +34,7 @@ draw() {
 
 build() {
   mkdir -p "$OUT"
-  # zmk fork that config/default.nix imports as "../src"
-  [ -d src/app ] || git clone -q --depth 1 https://github.com/moergo-sc/zmk src
+  ensure_src
   if ! NIX_PATH=nixpkgs=https://github.com/NixOS/nixpkgs/archive/$NIXPKGS.tar.gz \
       nix-build config -o "$OUT/combined" -j"$(nproc)" \
         --option extra-substituters "$CACHE" \
