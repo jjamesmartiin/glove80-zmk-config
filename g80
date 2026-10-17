@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Glove80 iteration loop.  usage: ./g80 <draw|build|flash|all>
+set -euo pipefail
+cd "$(dirname "$0")"
+
+KEYMAP=config/glove80.keymap
+CONF=config/glove80.conf
+OUT=${OUT:-out}                      # rendered layers + uf2 land here
+NIXPKGS=${NIXPKGS:-nixos-23.11}      # pinned: zmk fork is built against 23.11
+CACHE=https://moergo-glove80-zmk-dev.cachix.org
+CACHE_KEY=moergo-glove80-zmk-dev.cachix.org-1:D8fhPJ1c3gkuckuyBLRtGYarCVptIDn4g5k8u91NbyM=
+
+kd() { uvx --from keymap-drawer keymap "$@"; }
+
+draw() {
+  mkdir -p "$OUT"
+  local names
+  names=$(grep -oP 'layer_\d+_\K\w+' "$KEYMAP" | paste -sd' ')
+  kd parse -z "$KEYMAP" --layer-names $names -o "$OUT/layers.yaml"
+  KEYMAP_DRAWER_LAYOUTS=$PWD kd draw "$OUT/layers.yaml" -z glove80 -o "$OUT/layers.svg"
+  echo "drew $(echo $names | wc -w) layers -> $OUT/layers.svg"
+}
+
+build() {
+  mkdir -p "$OUT"
+  if ! NIX_PATH=nixpkgs=https://github.com/NixOS/nixpkgs/archive/$NIXPKGS.tar.gz \
+      nix-build config -o "$OUT/combined" -j"$(nproc)" \
+        --option extra-substituters "$CACHE" \
+        --option extra-trusted-public-keys "$CACHE_KEY"; then
+    echo "build failed — a bad binding in $KEYMAP is the usual cause" >&2
+    return 1
+  fi
+  cp "$OUT/combined/glove80.uf2" "$OUT/glove80.uf2"
+  echo "built -> $OUT/glove80.uf2"
+}
+
+flash() {
+  # each half: Magic + key 3-up-from-left -> USB drive GLV80[LR]HBOOT
+  local dst
+  dst=$(ls -d /run/media/"$USER"/* 2>/dev/null | while read -r d; do [ -f "$d/INFO_UF2.TXT" ] && echo "$d"; done | head -1)
+  [ -n "$dst" ] || { echo "no GLV80 UF2 volume mounted — hold Magic + plug in USB first" >&2; return 1; }
+  cp "$OUT/glove80.uf2" "$dst/"
+  sync
+  echo "flashed -> $dst"
+}
+
+case ${1:-all} in
+  draw) draw ;;
+  build) build ;;
+  flash) flash ;;
+  all) draw && build ;;
+  port) node tools/layout2zmk.mjs "${2:-my-layout.json}" config && draw ;;
+  *) echo "usage: $0 <draw|build|flash|all|port>" >&2; exit 2 ;;
+esac
